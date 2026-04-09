@@ -1,0 +1,35 @@
+# Xilinx Vivado generated files
+*.jou
+*.log
+*.str
+*.xpe
+
+# Vivado project internals
+*.runs/
+*.cache/
+*.hw/
+*.ip_user_files/
+*.sim/
+*.hbs/
+*.gen/
+
+# Vivado hardware manager
+*.bit
+*.ltx
+*.dcp
+
+# Backup files
+*.backup.*
+
+# OS files
+desktop.ini
+Thumbs.db
+.DS_Store
+
+# Vivado temp/lock files
+.Xil/
+*.wdb
+*.wdf
+webtalk/
+webtalk_*
+usage_statistics_webtalk.*
