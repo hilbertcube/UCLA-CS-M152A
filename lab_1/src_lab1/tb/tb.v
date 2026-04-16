@@ -7,6 +7,10 @@ module tb;
    reg       btnS;
    reg       btnR;
    
+   reg [7:0] instr_mem [0:1023];  // up to 1024 instructions
+   integer instr_count;
+   integer idx;
+   
    integer   i;
    
    /*AUTOWIRE*/
@@ -24,20 +28,20 @@ module tb;
         clk = 0;
         btnR = 1;
         btnS = 0;
+        sw = 0;
+        
+        $readmemb("/home/don-le/Documents/FPGA/Verilog/lab_1/input/seq.code", instr_mem);
+        instr_count = instr_mem[0];
+        
         #1000 btnR = 0;
         #1500000;
         
-        tskRunPUSH(0,4);
-        tskRunPUSH(0,0);
-        tskRunPUSH(1,3);
-        tskRunMULT(0,1,2);
-        tskRunADD(2,0,3);
-        tskRunSEND(0);
-        tskRunSEND(1);
-        tskRunSEND(2);
-        tskRunSEND(3);
+        for(idx = 1; idx <= instr_count; idx = idx + 1) 
+        begin
+            tskRunInst(instr_mem[idx]);
+        end
         
-        #1000;        
+        #1000;
         $finish;
      end
 

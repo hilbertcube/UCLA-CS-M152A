@@ -9,6 +9,9 @@ module model_uart(/*AUTOARG*/
 
    output TX;
    input  RX;
+   
+   reg [8*32-1:0] line_buf;  // up to 32 characters
+   integer        idx;
 
    parameter baud    = 115200;
    parameter bittime = 1000000000/baud;
@@ -24,6 +27,8 @@ module model_uart(/*AUTOARG*/
    initial
      begin
         TX = 1'b1;
+        line_buf = 0;
+        idx = 0;
      end
    
    always @ (negedge RX)
@@ -37,7 +42,17 @@ module model_uart(/*AUTOARG*/
              rxData[7:0] = {RX,rxData[7:1]};
           end
         ->evByte;
-        $display ("%d %s Received byte %02x (%s)", $stime, name, rxData, rxData);
+        
+        if (rxData == 8'h72) begin  // 'r'
+            line_buf[8*idx +: 8] = 8'h00; // null terminate
+            $display("%s", line_buf);
+            line_buf = 0;
+            idx = 0;
+        end
+        else if (rxData != 8'h0A) begin  // ignore '\n'
+            line_buf[32 - 8 - 8*idx +: 8] = rxData;
+            idx = idx + 1;
+        end
      end
 
    task tskRxData;
