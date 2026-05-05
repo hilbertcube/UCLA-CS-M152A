@@ -13,21 +13,7 @@ module stopwatch_counter(
     output reg [3:0] sec_ones
   );
 
-  reg tick_1hz_prev;
-  reg tick_2hz_prev;
-  wire tick_1hz_pulse;
-  wire tick_2hz_pulse;
-
   reg running = 1'b1;
-
-  assign tick_1hz_pulse = tick_1hz & ~tick_1hz_prev;
-  assign tick_2hz_pulse = tick_2hz & ~tick_2hz_prev;
-
-  always @(posedge clk)
-  begin
-    tick_1hz_prev <= tick_1hz;
-    tick_2hz_prev <= tick_2hz;
-  end
 
   always @(posedge clk)
   begin
@@ -47,7 +33,7 @@ module stopwatch_counter(
         running <= ~running;
       end
 
-      if (adj && tick_2hz_pulse)
+      if (adj && tick_2hz)
       begin
         if (!sel)
         begin
@@ -82,7 +68,7 @@ module stopwatch_counter(
           end
         end
       end
-      else if (running && !adj && tick_1hz_pulse)
+      else if (running && !adj && tick_1hz)
       begin
         if (sec_ones == 9)
         begin

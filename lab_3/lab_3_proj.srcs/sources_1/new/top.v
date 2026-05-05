@@ -12,8 +12,9 @@ module top(
   );
 
   wire clk_1hz;
-  wire clk_500hz;
   wire clk_2hz;
+  wire scan_tick;
+  wire blink_state;
 
   wire pause_clean;
   wire reset_clean;
@@ -33,9 +34,10 @@ module top(
   clock_divider clkdiv(
                   .clk(clk),
                   .reset(1'b0),
-                  .clk_1hz(clk_1hz),
-                  .clk_2hz(clk_2hz),
-                  .clk_500hz(clk_500hz)
+                  .tick_1hz(clk_1hz),
+                  .tick_2hz(clk_2hz),
+                  .tick_500hz(scan_tick),
+                  .blink_state(blink_state)
                 );
 
   debouncer db_pause(
@@ -81,8 +83,9 @@ module top(
                     );
 
   seg7_controller display(
-                    .clk_500hz(clk_500hz),
-                    .blink_clk(clk_2hz),
+                    .clk(clk),
+                    .scan_tick(scan_tick),
+                    .blink_state(blink_state),
                     .sel(sel_clean),
                     .adj(adj_clean),
                     .min_tens(min_tens),

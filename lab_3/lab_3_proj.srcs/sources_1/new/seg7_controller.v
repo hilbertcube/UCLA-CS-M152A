@@ -1,6 +1,7 @@
 module seg7_controller(
-    input clk_500hz,
-    input blink_clk,
+    input clk,
+    input scan_tick,
+    input blink_state,
     input sel,
     input adj,
 
@@ -23,9 +24,10 @@ module seg7_controller(
                  .seg(decoded_seg)
                );
 
-  always @(posedge clk_500hz)
+  always @(posedge clk)
   begin
-    digit_select <= digit_select + 1;
+    if (scan_tick)
+      digit_select <= digit_select + 1;
   end
 
   always @(*)
@@ -35,28 +37,28 @@ module seg7_controller(
       begin
         an = 4'b1110;
         current_digit = sec_ones;
-        blink_blank = adj && sel && blink_clk;
+        blink_blank = adj && sel && blink_state;
       end
 
       2'b01:
       begin
         an = 4'b1101;
         current_digit = sec_tens;
-        blink_blank = adj && sel && blink_clk;
+        blink_blank = adj && sel && blink_state;
       end
 
       2'b10:
       begin
         an = 4'b1011;
         current_digit = min_ones;
-        blink_blank = adj && !sel && blink_clk;
+        blink_blank = adj && !sel && blink_state;
       end
 
       2'b11:
       begin
         an = 4'b0111;
         current_digit = min_tens;
-        blink_blank = adj && !sel && blink_clk;
+        blink_blank = adj && !sel && blink_state;
       end
 
       default:
