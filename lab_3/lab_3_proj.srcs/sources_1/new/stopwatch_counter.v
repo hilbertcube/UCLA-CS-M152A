@@ -18,7 +18,7 @@ module stopwatch_counter(
   wire tick_1hz_pulse;
   wire tick_2hz_pulse;
 
-  reg running;
+  reg running = 1'b1;
 
   assign tick_1hz_pulse = tick_1hz & ~tick_1hz_prev;
   assign tick_2hz_pulse = tick_2hz & ~tick_2hz_prev;
