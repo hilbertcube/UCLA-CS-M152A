@@ -7,9 +7,10 @@ module clock_divider(
     output reg blink_state
   );
 
+  // Independent counters derive slow enable pulses from the 100 MHz board clock.
   reg [26:0] count_1hz;
   reg [25:0] count_2hz;
-  reg [16:0] count_500hz;
+  reg [17:0] count_500hz;
 
   always @(posedge clk)
   begin
@@ -25,6 +26,7 @@ module clock_divider(
     end
     else
     begin
+      // These outputs are one-clock pulses, so clear them by default every cycle.
       tick_1hz <= 0;
       tick_2hz <= 0;
       tick_500hz <= 0;

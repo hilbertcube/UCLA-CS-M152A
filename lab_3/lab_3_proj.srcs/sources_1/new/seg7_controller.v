@@ -19,6 +19,7 @@ module seg7_controller(
   reg blink_blank;
   wire [6:0] decoded_seg;
 
+  // Shared decoder converts the currently selected BCD digit into segment bits.
   seg7_decoder decoder(
                  .digit(current_digit),
                  .seg(decoded_seg)
@@ -26,12 +27,14 @@ module seg7_controller(
 
   always @(posedge clk)
   begin
+    // Multiplex the four digits fast enough that they appear continuously lit.
     if (scan_tick)
       digit_select <= digit_select + 1;
   end
 
   always @(*)
   begin
+    // Select one display anode at a time and choose which value it should show.
     case (digit_select)
       2'b00:
       begin
@@ -69,6 +72,7 @@ module seg7_controller(
       end
     endcase
 
+    // While adjusting, blank the selected field on alternate blink phases.
     seg = blink_blank ? 7'b1111111 : decoded_seg;
   end
 

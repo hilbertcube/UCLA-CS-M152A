@@ -11,19 +11,23 @@ module top(
     output dp
   );
 
+  // Slow timing enables used for counting, blinking, and display multiplexing.
   wire clk_1hz;
   wire clk_2hz;
   wire scan_tick;
   wire blink_state;
 
+  // Debounced button levels.
   wire pause_clean;
   wire reset_clean;
   wire sel_clean;
   wire adj_clean;
 
+  // One-cycle button pulses for actions that should happen once per press.
   wire pause_pulse;
   wire reset_pulse;
 
+  // Individual BCD digits that feed the 4-digit seven-segment display.
   wire [3:0] min_tens;
   wire [3:0] min_ones;
   wire [3:0] sec_tens;
@@ -31,6 +35,7 @@ module top(
 
   assign dp = 1'b1; // decimal point off, active-low
 
+  // Generate all timing pulses from the incoming board clock.
   clock_divider clkdiv(
                   .clk(clk),
                   .reset(1'b0),
@@ -40,6 +45,7 @@ module top(
                   .blink_state(blink_state)
                 );
 
+  // Clean up the mechanical push buttons before the rest of the design uses them.
   debouncer db_pause(
               .clk(clk),
               .btn_in(pause_btn),
@@ -68,6 +74,7 @@ module top(
               .btn_pulse()
             );
 
+  // Hold the current MM:SS value and update it from button actions or 1 Hz ticks.
   stopwatch_counter counter(
                       .clk(clk),
                       .tick_1hz(clk_1hz),
@@ -82,6 +89,7 @@ module top(
                       .sec_ones(sec_ones)
                     );
 
+  // Multiplex the four digits onto the physical seven-segment display.
   seg7_controller display(
                     .clk(clk),
                     .scan_tick(scan_tick),
@@ -97,3 +105,7 @@ module top(
                   );
 
 endmodule
+
+/*
+
+*/

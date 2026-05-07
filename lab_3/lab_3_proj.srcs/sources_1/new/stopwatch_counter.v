@@ -13,6 +13,7 @@ module stopwatch_counter(
     output reg [3:0] sec_ones
   );
 
+  // The stopwatch starts in the running state after configuration or reset.
   reg running = 1'b1;
 
   always @(posedge clk)
@@ -28,11 +29,13 @@ module stopwatch_counter(
     else
     begin
 
+      // Each debounced pause pulse toggles between run and hold.
       if (pause)
       begin
         running <= ~running;
       end
 
+      // In adjust mode, the selected field increments at 2 Hz for easy stepping.
       if (adj && tick_2hz)
       begin
         if (!sel)
@@ -68,6 +71,7 @@ module stopwatch_counter(
           end
         end
       end
+      // Normal stopwatch operation advances once per second with MM:SS rollover.
       else if (running && !adj && tick_1hz)
       begin
         if (sec_ones == 9)
