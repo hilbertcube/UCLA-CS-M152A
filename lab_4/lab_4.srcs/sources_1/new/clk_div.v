@@ -23,7 +23,7 @@ module clk_div(
 
     always @(posedge clk_in) begin
         div_cnt <= div_cnt + 2'd1;
-        if (div_cnt == 2'd1)
+        if (div_cnt[0])          // toggle at count 1 and 3 → every 2 cycles → 25 MHz
             pix_clk <= ~pix_clk;
     end
 
