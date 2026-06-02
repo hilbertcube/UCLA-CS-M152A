@@ -9,10 +9,10 @@
 //                  y = villain_base_y + row*24
 //      Sprite size 12x8 in a 32x24 cell.
 //
-//  - 1 player bullet  (active flag + x,y), travels up   4 px/tick
+//  - 3 player bullets (active flag + x,y each), travel up   4 px/tick
 //  - 12 villain bullets (one-hot active + x,y),  travel down 4 px/tick
 //
-//  - Player moves +/-2 px/tick while btnL or btnR held; clamped to [0..624]
+//  - Player moves +/-4 px/tick while btnL or btnR held; clamped to [0..624]
 //  - Villains shift +/-2 px/tick; flip direction at screen edges
 //  - Every 90 ticks (~1.5 s @ 60Hz), up to 3 villains fire bullets,
 //      villain indices selected by an LFSR
@@ -37,10 +37,10 @@ module game_logic(
     output reg  [9:0]  villain_base_x,
     output reg  [9:0]  villain_base_y,
 
-    // --- Player bullet ---
-    output reg         pb_active,
-    output reg  [9:0]  pb_x,
-    output reg  [9:0]  pb_y,
+    // --- Player bullets (3 slots) ---
+    output reg  [2:0]  pb_active,
+    output reg  [9:0]  pb_x_0, pb_x_1, pb_x_2,
+    output reg  [9:0]  pb_y_0, pb_y_1, pb_y_2,
 
     // --- 12 villain bullets (broken out for renderer) ---
     output reg  [11:0] vb_active,
@@ -64,6 +64,7 @@ module game_logic(
     localparam PLAYER_H   = 10'd8;
     localparam PLAYER_Y   = 10'd450;
     localparam PLAYER_MAX_X = SCREEN_W - PLAYER_W;   // 624
+    localparam PLAYER_SPD = 10'd4;                   // player movement px/tick
 
     // Villain sprite 12x8, cell 32x24
     localparam V_W        = 10'd12;
@@ -172,16 +173,31 @@ module game_logic(
     assign vbx[10]=vb_x_10; assign vby[10]=vb_y_10;
     assign vbx[11]=vb_x_11; assign vby[11]=vb_y_11;
 
-    // Hit-detection wires (combinational) - which villain (if any) does
-    // the player bullet collide with? Priority = lowest index.
-    wire [14:0] pb_vill_hit_vec;
+    // Pack player bullet x/y for indexed access in collision logic
+    wire [9:0] pbx [0:2];
+    wire [9:0] pby [0:2];
+    assign pbx[0] = pb_x_0; assign pby[0] = pb_y_0;
+    assign pbx[1] = pb_x_1; assign pby[1] = pb_y_1;
+    assign pbx[2] = pb_x_2; assign pby[2] = pb_y_2;
+
+    // Hit-detection wires (combinational) - per-bullet vector showing which
+    // villain (if any) each player bullet collides with. Priority = lowest index.
+    wire [14:0] pb_vill_hit_vec_0;
+    wire [14:0] pb_vill_hit_vec_1;
+    wire [14:0] pb_vill_hit_vec_2;
     generate
         for (gi = 0; gi < 15; gi = gi + 1) begin : g_pb_hit
-            assign pb_vill_hit_vec[gi] = pb_active && villain_alive[gi] &&
-                aabb_overlap(pb_x, pb_y, PB_W, PB_H, vx[gi], vy[gi], V_W, V_H);
+            assign pb_vill_hit_vec_0[gi] = pb_active[0] && villain_alive[gi] &&
+                aabb_overlap(pbx[0], pby[0], PB_W, PB_H, vx[gi], vy[gi], V_W, V_H);
+            assign pb_vill_hit_vec_1[gi] = pb_active[1] && villain_alive[gi] &&
+                aabb_overlap(pbx[1], pby[1], PB_W, PB_H, vx[gi], vy[gi], V_W, V_H);
+            assign pb_vill_hit_vec_2[gi] = pb_active[2] && villain_alive[gi] &&
+                aabb_overlap(pbx[2], pby[2], PB_W, PB_H, vx[gi], vy[gi], V_W, V_H);
         end
     endgenerate
-    wire pb_any_hit = |pb_vill_hit_vec;
+    wire pb_hit_0 = |pb_vill_hit_vec_0;
+    wire pb_hit_1 = |pb_vill_hit_vec_1;
+    wire pb_hit_2 = |pb_vill_hit_vec_2;
 
     // Which villain bullet hit the player?
     wire [11:0] vb_hit_vec;
@@ -217,9 +233,10 @@ module game_logic(
             villain_base_y <= V_BASE_Y_INIT;
             villain_dir    <= DIR_RIGHT;
             // Bullets
-            pb_active      <= 1'b0;
-            pb_x           <= 10'd0;
-            pb_y           <= 10'd0;
+            pb_active      <= 3'd0;
+            pb_x_0 <= 10'd0; pb_y_0 <= 10'd0;
+            pb_x_1 <= 10'd0; pb_y_1 <= 10'd0;
+            pb_x_2 <= 10'd0; pb_y_2 <= 10'd0;
             vb_active      <= 12'd0;
             vb_x_0  <= 10'd0; vb_y_0  <= 10'd0;
             vb_x_1  <= 10'd0; vb_y_1  <= 10'd0;
@@ -244,11 +261,22 @@ module game_logic(
             // Always advance the LFSR
             lfsr <= {lfsr[14:0], lfsr[15] ^ lfsr[13] ^ lfsr[12] ^ lfsr[10]};
 
-            // Fire pulse can latch a new player bullet immediately
-            if (game_state == ST_PLAY && fire_pulse && !pb_active && player_alive) begin
-                pb_active <= 1'b1;
-                pb_x      <= player_x + (PLAYER_W >> 1) - (PB_W >> 1);
-                pb_y      <= PLAYER_Y - PB_H;
+            // Fire pulse can latch a new player bullet immediately, into the
+            // lowest-indexed free slot. Up to 3 bullets can be on-screen.
+            if (game_state == ST_PLAY && fire_pulse && player_alive) begin
+                if (!pb_active[0]) begin
+                    pb_active[0] <= 1'b1;
+                    pb_x_0       <= player_x + (PLAYER_W >> 1) - (PB_W >> 1);
+                    pb_y_0       <= PLAYER_Y - PB_H;
+                end else if (!pb_active[1]) begin
+                    pb_active[1] <= 1'b1;
+                    pb_x_1       <= player_x + (PLAYER_W >> 1) - (PB_W >> 1);
+                    pb_y_1       <= PLAYER_Y - PB_H;
+                end else if (!pb_active[2]) begin
+                    pb_active[2] <= 1'b1;
+                    pb_x_2       <= player_x + (PLAYER_W >> 1) - (PB_W >> 1);
+                    pb_y_2       <= PLAYER_Y - PB_H;
+                end
             end
 
             // ============================================================
@@ -268,19 +296,27 @@ module game_logic(
                 // 1) Player movement
                 //------------------------------------------------------
                 if (btnL && !btnR) begin
-                    if (player_x >= 10'd2) player_x <= player_x - 10'd2;
-                    else                   player_x <= 10'd0;
+                    if (player_x >= PLAYER_SPD) player_x <= player_x - PLAYER_SPD;
+                    else                        player_x <= 10'd0;
                 end else if (btnR && !btnL) begin
-                    if (player_x + 10'd2 <= PLAYER_MAX_X) player_x <= player_x + 10'd2;
-                    else                                  player_x <= PLAYER_MAX_X;
+                    if (player_x + PLAYER_SPD <= PLAYER_MAX_X) player_x <= player_x + PLAYER_SPD;
+                    else                                       player_x <= PLAYER_MAX_X;
                 end
 
                 //------------------------------------------------------
-                // 2) Player bullet movement
+                // 2) Player bullet movement - 3 slots, each moves up
                 //------------------------------------------------------
-                if (pb_active) begin
-                    if (pb_y < BULLET_SPD) pb_active <= 1'b0;
-                    else                   pb_y      <= pb_y - BULLET_SPD;
+                if (pb_active[0]) begin
+                    if (pb_y_0 < BULLET_SPD) pb_active[0] <= 1'b0;
+                    else                     pb_y_0       <= pb_y_0 - BULLET_SPD;
+                end
+                if (pb_active[1]) begin
+                    if (pb_y_1 < BULLET_SPD) pb_active[1] <= 1'b0;
+                    else                     pb_y_1       <= pb_y_1 - BULLET_SPD;
+                end
+                if (pb_active[2]) begin
+                    if (pb_y_2 < BULLET_SPD) pb_active[2] <= 1'b0;
+                    else                     pb_y_2       <= pb_y_2 - BULLET_SPD;
                 end
 
                 //------------------------------------------------------
@@ -316,13 +352,16 @@ module game_logic(
                 end
 
                 //------------------------------------------------------
-                // 5) Player-bullet vs villain collision (priority encoder)
+                // 5) Player-bullet vs villain collision
+                //    Each bullet independently. Up to 3 villains can die in
+                //    one tick. Score = 10 * (number of bullets that hit).
+                //    Note: if two bullets hit the same villain in the same
+                //    tick, the dual <= 0 to villain_alive is idempotent;
+                //    score still counts each bullet (minor gift to the player).
                 //------------------------------------------------------
-                if (pb_any_hit) begin
-                    pb_active <= 1'b0;
-                    score     <= score + 14'd10;
-                    // Clear the lowest-index hit villain
-                    casez (pb_vill_hit_vec)
+                if (pb_hit_0) begin
+                    pb_active[0] <= 1'b0;
+                    casez (pb_vill_hit_vec_0)
                         15'b???????????????1: villain_alive[0]  <= 1'b0;
                         15'b??????????????10: villain_alive[1]  <= 1'b0;
                         15'b?????????????100: villain_alive[2]  <= 1'b0;
@@ -338,9 +377,58 @@ module game_logic(
                         15'b???1000000000000: villain_alive[12] <= 1'b0;
                         15'b??10000000000000: villain_alive[13] <= 1'b0;
                         15'b?100000000000000: villain_alive[14] <= 1'b0;
-                        default: ; // none
+                        default: ;
                     endcase
                 end
+                if (pb_hit_1) begin
+                    pb_active[1] <= 1'b0;
+                    casez (pb_vill_hit_vec_1)
+                        15'b???????????????1: villain_alive[0]  <= 1'b0;
+                        15'b??????????????10: villain_alive[1]  <= 1'b0;
+                        15'b?????????????100: villain_alive[2]  <= 1'b0;
+                        15'b????????????1000: villain_alive[3]  <= 1'b0;
+                        15'b???????????10000: villain_alive[4]  <= 1'b0;
+                        15'b??????????100000: villain_alive[5]  <= 1'b0;
+                        15'b?????????1000000: villain_alive[6]  <= 1'b0;
+                        15'b????????10000000: villain_alive[7]  <= 1'b0;
+                        15'b???????100000000: villain_alive[8]  <= 1'b0;
+                        15'b??????1000000000: villain_alive[9]  <= 1'b0;
+                        15'b?????10000000000: villain_alive[10] <= 1'b0;
+                        15'b????100000000000: villain_alive[11] <= 1'b0;
+                        15'b???1000000000000: villain_alive[12] <= 1'b0;
+                        15'b??10000000000000: villain_alive[13] <= 1'b0;
+                        15'b?100000000000000: villain_alive[14] <= 1'b0;
+                        default: ;
+                    endcase
+                end
+                if (pb_hit_2) begin
+                    pb_active[2] <= 1'b0;
+                    casez (pb_vill_hit_vec_2)
+                        15'b???????????????1: villain_alive[0]  <= 1'b0;
+                        15'b??????????????10: villain_alive[1]  <= 1'b0;
+                        15'b?????????????100: villain_alive[2]  <= 1'b0;
+                        15'b????????????1000: villain_alive[3]  <= 1'b0;
+                        15'b???????????10000: villain_alive[4]  <= 1'b0;
+                        15'b??????????100000: villain_alive[5]  <= 1'b0;
+                        15'b?????????1000000: villain_alive[6]  <= 1'b0;
+                        15'b????????10000000: villain_alive[7]  <= 1'b0;
+                        15'b???????100000000: villain_alive[8]  <= 1'b0;
+                        15'b??????1000000000: villain_alive[9]  <= 1'b0;
+                        15'b?????10000000000: villain_alive[10] <= 1'b0;
+                        15'b????100000000000: villain_alive[11] <= 1'b0;
+                        15'b???1000000000000: villain_alive[12] <= 1'b0;
+                        15'b??10000000000000: villain_alive[13] <= 1'b0;
+                        15'b?100000000000000: villain_alive[14] <= 1'b0;
+                        default: ;
+                    endcase
+                end
+                // Aggregate score: +10 per bullet that hit something
+                case ({pb_hit_2, pb_hit_1, pb_hit_0})
+                    3'b001, 3'b010, 3'b100: score <= score + 14'd10;
+                    3'b011, 3'b101, 3'b110: score <= score + 14'd20;
+                    3'b111:                 score <= score + 14'd30;
+                    default: ;
+                endcase
 
                 //------------------------------------------------------
                 // 6) Villain-bullet vs player collision (priority encoder)

@@ -30,10 +30,10 @@ module renderer(
     input  wire [9:0]  villain_base_x,
     input  wire [9:0]  villain_base_y,
 
-    // --- Player bullet ---
-    input  wire        pb_active,
-    input  wire [9:0]  pb_x,
-    input  wire [9:0]  pb_y,
+    // --- Player bullets (3 slots) ---
+    input  wire [2:0]  pb_active,
+    input  wire [9:0]  pb_x_0, pb_x_1, pb_x_2,
+    input  wire [9:0]  pb_y_0, pb_y_1, pb_y_2,
 
     // --- 12 villain bullets ---
     input  wire [11:0] vb_active,
@@ -122,11 +122,11 @@ module renderer(
         (pix_x >= player_x) && (pix_x < player_x + PLAYER_W) &&
         (pix_y >= PLAYER_Y) && (pix_y < PLAYER_Y + PLAYER_H);
 
-    // Inside player bullet?
+    // Inside any active player bullet?
     wire in_pb =
-        pb_active &&
-        (pix_x >= pb_x) && (pix_x < pb_x + PB_W) &&
-        (pix_y >= pb_y) && (pix_y < pb_y + PB_H);
+        (pb_active[0] && pix_x>=pb_x_0 && pix_x<pb_x_0+PB_W && pix_y>=pb_y_0 && pix_y<pb_y_0+PB_H) ||
+        (pb_active[1] && pix_x>=pb_x_1 && pix_x<pb_x_1+PB_W && pix_y>=pb_y_1 && pix_y<pb_y_1+PB_H) ||
+        (pb_active[2] && pix_x>=pb_x_2 && pix_x<pb_x_2+PB_W && pix_y>=pb_y_2 && pix_y<pb_y_2+PB_H);
 
     // Inside any villain bullet?
     wire in_vb =
@@ -148,9 +148,23 @@ module renderer(
     genvar gi;
     generate
         for (gi = 0; gi < 15; gi = gi + 1) begin : g_in_v
+            wire [9:0] vx_i = vx(gi[3:0]);
+            wire [9:0] vy_i = vy(gi[3:0]);
+            // Sub-pixel offset within the 12x8 sprite cell.
+            // 4-bit/3-bit modular subtraction is correct for any villain_base_x
+            // because V_W=12<16 and V_H=8=2^3.
+            wire [3:0] sp_x = pix_x[3:0] - vx_i[3:0];
+            wire [2:0] sp_y = pix_y[2:0] - vy_i[2:0];
+            wire       rom_pix;
+            villain_rom u_vrom (
+                .col (sp_x),
+                .row (sp_y),
+                .pix (rom_pix)
+            );
             assign in_v_vec[gi] = villain_alive[gi] &&
-                (pix_x >= vx(gi[3:0])) && (pix_x < vx(gi[3:0]) + V_W) &&
-                (pix_y >= vy(gi[3:0])) && (pix_y < vy(gi[3:0]) + V_H);
+                (pix_x >= vx_i) && (pix_x < vx_i + V_W) &&
+                (pix_y >= vy_i) && (pix_y < vy_i + V_H) &&
+                rom_pix;
         end
     endgenerate
     wire in_villain = |in_v_vec;

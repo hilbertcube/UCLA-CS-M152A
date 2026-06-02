@@ -35,37 +35,37 @@ module top(
     output wire        dp,
     output wire [3:0]  an
 );
- 
+
     //--------------------------------------------------------------------------
     // Clock generation: 25 MHz pixel clock and game tick (~60 Hz)
     //--------------------------------------------------------------------------
     wire pix_clk;       // 25 MHz for VGA
     wire game_tick;     // single-cycle pulse at ~60 Hz (in pix_clk domain)
- 
+
     clk_div u_clk_div (
         .clk_in   (clk),
         .pix_clk  (pix_clk),
         .game_tick(game_tick)
     );
- 
+
     //--------------------------------------------------------------------------
     // Reset: synchronize hard reset to pix_clk domain
     //--------------------------------------------------------------------------
     reg [1:0] rst_sync;
     always @(posedge pix_clk) rst_sync <= {rst_sync[0], reset_btn};
     wire rst = rst_sync[1];
- 
+
     //--------------------------------------------------------------------------
     // Button debouncers (all in pix_clk domain)
     //--------------------------------------------------------------------------
     wire btnL_db, btnR_db, btnU_db, btnD_db;
     wire btnU_pulse;    // single-cycle pulse on fire press
- 
+
     debouncer #(.CNT_WIDTH(16)) u_db_L (.clk(pix_clk), .rst(rst), .btn_in(btnL), .btn_out(btnL_db), .btn_pulse());
     debouncer #(.CNT_WIDTH(16)) u_db_R (.clk(pix_clk), .rst(rst), .btn_in(btnR), .btn_out(btnR_db), .btn_pulse());
     debouncer #(.CNT_WIDTH(16)) u_db_U (.clk(pix_clk), .rst(rst), .btn_in(btnU), .btn_out(btnU_db), .btn_pulse(btnU_pulse));
     debouncer #(.CNT_WIDTH(16)) u_db_D (.clk(pix_clk), .rst(rst), .btn_in(btnD), .btn_out(btnD_db), .btn_pulse());
- 
+
     //--------------------------------------------------------------------------
     // Hold-to-reset: BTNB held for ~3 seconds => soft reset
     // At 25 MHz, 3 sec = 75,000,000 cycles -> need 27-bit counter
@@ -89,16 +89,16 @@ module top(
             soft_rst <= 1'b0;
         end
     end
- 
+
     wire game_rst = rst | soft_rst;
- 
+
     //--------------------------------------------------------------------------
     // VGA sync generator
     //--------------------------------------------------------------------------
     wire        video_on;
     wire [9:0]  pix_x;
     wire [9:0]  pix_y;
- 
+
     vga_sync u_vga (
         .pix_clk (pix_clk),
         .rst     (rst),
@@ -108,7 +108,7 @@ module top(
         .pix_x   (pix_x),
         .pix_y   (pix_y)
     );
- 
+
     //--------------------------------------------------------------------------
     // Game logic - tracks all state, advances on game_tick
     //--------------------------------------------------------------------------
@@ -118,8 +118,9 @@ module top(
     wire [14:0]  villain_alive;       // bit i = villain i is alive
     wire [9:0]   villain_base_x;
     wire [9:0]   villain_base_y;
-    wire         pb_active;
-    wire [9:0]   pb_x, pb_y;          // player bullet
+    wire [2:0]   pb_active;
+    wire [9:0]   pb_x_0, pb_x_1, pb_x_2;
+    wire [9:0]   pb_y_0, pb_y_1, pb_y_2;
     wire [11:0]  vb_active;           // up to 12 villain bullets
     wire [9:0]   vb_x_0, vb_x_1, vb_x_2,  vb_x_3,  vb_x_4,  vb_x_5;
     wire [9:0]   vb_x_6, vb_x_7, vb_x_8,  vb_x_9,  vb_x_10, vb_x_11;
@@ -128,7 +129,7 @@ module top(
     wire [1:0]   lives;
     wire [13:0]  score;
     wire [1:0]   game_state;          // 00=PLAY 01=GAME_OVER 10=WIN
- 
+
     game_logic u_game (
         .clk          (pix_clk),
         .rst          (game_rst),
@@ -143,8 +144,9 @@ module top(
         .villain_base_x(villain_base_x),
         .villain_base_y(villain_base_y),
         .pb_active    (pb_active),
-        .pb_x         (pb_x),
-        .pb_y         (pb_y),
+        .pb_x_0(pb_x_0), .pb_y_0(pb_y_0),
+        .pb_x_1(pb_x_1), .pb_y_1(pb_y_1),
+        .pb_x_2(pb_x_2), .pb_y_2(pb_y_2),
         .vb_active    (vb_active),
         .vb_x_0(vb_x_0), .vb_y_0(vb_y_0),
         .vb_x_1(vb_x_1), .vb_y_1(vb_y_1),
@@ -162,7 +164,7 @@ module top(
         .score        (score),
         .game_state   (game_state)
     );
- 
+
     //--------------------------------------------------------------------------
     // Renderer - combinational pixel-color generator
     //--------------------------------------------------------------------------
@@ -177,8 +179,9 @@ module top(
         .villain_base_x(villain_base_x),
         .villain_base_y(villain_base_y),
         .pb_active    (pb_active),
-        .pb_x         (pb_x),
-        .pb_y         (pb_y),
+        .pb_x_0(pb_x_0), .pb_y_0(pb_y_0),
+        .pb_x_1(pb_x_1), .pb_y_1(pb_y_1),
+        .pb_x_2(pb_x_2), .pb_y_2(pb_y_2),
         .vb_active    (vb_active),
         .vb_x_0(vb_x_0), .vb_y_0(vb_y_0),
         .vb_x_1(vb_x_1), .vb_y_1(vb_y_1),
@@ -198,7 +201,7 @@ module top(
         .vgaGreen     (vgaGreen),
         .vgaBlue      (vgaBlue)
     );
- 
+
     //--------------------------------------------------------------------------
     // 7-segment display - shows score in decimal
     //--------------------------------------------------------------------------
@@ -210,5 +213,5 @@ module top(
         .dp   (dp),
         .an   (an)
     );
- 
+
 endmodule
