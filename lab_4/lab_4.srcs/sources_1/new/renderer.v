@@ -156,10 +156,12 @@ module renderer(
             wire [3:0] sp_x = pix_x[3:0] - vx_i[3:0];
             wire [2:0] sp_y = pix_y[2:0] - vy_i[2:0];
             wire       rom_pix;
+            // gi 0-4 = top row (squid), 5-9 = middle (crab), 10-14 = bottom (octopus)
             villain_rom u_vrom (
-                .col (sp_x),
-                .row (sp_y),
-                .pix (rom_pix)
+                .alien_type ((gi <= 4) ? 2'd0 : (gi <= 9) ? 2'd1 : 2'd2),
+                .col        (sp_x),
+                .row        (sp_y),
+                .pix        (rom_pix)
             );
             assign in_v_vec[gi] = villain_alive[gi] &&
                 (pix_x >= vx_i) && (pix_x < vx_i + V_W) &&
