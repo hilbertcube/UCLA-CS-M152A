@@ -59,18 +59,18 @@ module game_logic(
     localparam SCREEN_W   = 10'd640;
     localparam SCREEN_H   = 10'd480;
 
-    // Player sprite 16x8, fixed Y near bottom
-    localparam PLAYER_W   = 10'd16;
-    localparam PLAYER_H   = 10'd8;
+    // Player sprite 32x16 (2x scaled ROM), fixed Y near bottom
+    localparam PLAYER_W   = 10'd32;
+    localparam PLAYER_H   = 10'd16;
     localparam PLAYER_Y   = 10'd450;
     localparam PLAYER_MAX_X = SCREEN_W - PLAYER_W;   // 624
     localparam PLAYER_SPD = 10'd4;                   // player movement px/tick
 
-    // Villain sprite 12x8, cell 32x24
-    localparam V_W        = 10'd12;
-    localparam V_H        = 10'd8;
-    localparam V_CELL_W   = 10'd32;
-    localparam V_CELL_H   = 10'd24;
+    // Villain sprite 24x16 (2x scaled ROM), cell 40x32
+    localparam V_W        = 10'd24;
+    localparam V_H        = 10'd16;
+    localparam V_CELL_W   = 10'd40;
+    localparam V_CELL_H   = 10'd32;
     localparam V_GRID_W   = V_CELL_W * 10'd5;   // 160 px wide
     localparam V_BASE_X_INIT = 10'd80;
     localparam V_BASE_Y_INIT = 10'd60;
@@ -101,7 +101,7 @@ module game_logic(
 
     // Shooting cooldown counter
     reg [6:0] shoot_cnt;
-    localparam SHOOT_PERIOD = 7'd90;   // ~1.5 sec @ 60 Hz
+    localparam SHOOT_PERIOD = 7'd45;   // ~0.75 sec @ 60 Hz (doubled fire rate)
 
     // -------------------- Combinational helpers --------------------
     // Villain (col,row) -> screen x,y. Compute from index 0..14.
@@ -139,6 +139,48 @@ module game_logic(
         begin
             aabb_overlap = (ax < bx + bw) && (ax + aw > bx) &&
                            (ay < by + bh) && (ay + ah > by);
+        end
+    endfunction
+
+    // Walls (must match renderer.v constants)
+    localparam WALL_W      = 10'd32;
+    localparam WALL_H      = 10'd22;
+    localparam WALL_Y      = 10'd330;
+    localparam WALL_ARCH_X = 10'd11;
+    localparam WALL_ARCH_W = 10'd10;
+    localparam WALL_ARCH_Y = 10'd12;
+    localparam WALL0_X     = 10'd64;
+    localparam WALL1_X     = 10'd224;
+    localparam WALL2_X     = 10'd384;
+    localparam WALL3_X     = 10'd544;
+
+    // True if bullet (bx,by,bw,bh) hits the solid region of the wall at wx.
+    // Wall solid = top block + left pillar + right pillar (arch cutout excluded).
+    function bullet_hits_wall;
+        input [9:0] bx, by, bw, bh, wx;
+        begin
+            bullet_hits_wall =
+                // top block: full width, above arch
+                aabb_overlap(bx, by, bw, bh, wx, WALL_Y, WALL_W, WALL_ARCH_Y) ||
+                // left pillar
+                aabb_overlap(bx, by, bw, bh, wx, WALL_Y + WALL_ARCH_Y,
+                             WALL_ARCH_X, WALL_H - WALL_ARCH_Y) ||
+                // right pillar
+                aabb_overlap(bx, by, bw, bh,
+                             wx + WALL_ARCH_X + WALL_ARCH_W,
+                             WALL_Y + WALL_ARCH_Y,
+                             WALL_W - WALL_ARCH_X - WALL_ARCH_W,
+                             WALL_H - WALL_ARCH_Y);
+        end
+    endfunction
+
+    function any_wall_hit;
+        input [9:0] bx, by, bw, bh;
+        begin
+            any_wall_hit = bullet_hits_wall(bx, by, bw, bh, WALL0_X) ||
+                           bullet_hits_wall(bx, by, bw, bh, WALL1_X) ||
+                           bullet_hits_wall(bx, by, bw, bh, WALL2_X) ||
+                           bullet_hits_wall(bx, by, bw, bh, WALL3_X);
         end
     endfunction
 
@@ -223,7 +265,7 @@ module game_logic(
     always @(posedge clk) begin
         if (rst) begin
             // Player
-            player_x       <= 10'd312;     // (640-16)/2 = 312
+            player_x       <= 10'd304;     // (640-32)/2 = 304
             player_alive   <= 1'b1;
             player_blink   <= 1'b0;
             blink_cnt      <= 7'd0;
@@ -307,34 +349,41 @@ module game_logic(
                 // 2) Player bullet movement - 3 slots, each moves up
                 //------------------------------------------------------
                 if (pb_active[0]) begin
-                    if (pb_y_0 < BULLET_SPD) pb_active[0] <= 1'b0;
-                    else                     pb_y_0       <= pb_y_0 - BULLET_SPD;
+                    if (pb_y_0 < BULLET_SPD || any_wall_hit(pb_x_0, pb_y_0, PB_W, PB_H))
+                        pb_active[0] <= 1'b0;
+                    else
+                        pb_y_0 <= pb_y_0 - BULLET_SPD;
                 end
                 if (pb_active[1]) begin
-                    if (pb_y_1 < BULLET_SPD) pb_active[1] <= 1'b0;
-                    else                     pb_y_1       <= pb_y_1 - BULLET_SPD;
+                    if (pb_y_1 < BULLET_SPD || any_wall_hit(pb_x_1, pb_y_1, PB_W, PB_H))
+                        pb_active[1] <= 1'b0;
+                    else
+                        pb_y_1 <= pb_y_1 - BULLET_SPD;
                 end
                 if (pb_active[2]) begin
-                    if (pb_y_2 < BULLET_SPD) pb_active[2] <= 1'b0;
-                    else                     pb_y_2       <= pb_y_2 - BULLET_SPD;
+                    if (pb_y_2 < BULLET_SPD || any_wall_hit(pb_x_2, pb_y_2, PB_W, PB_H))
+                        pb_active[2] <= 1'b0;
+                    else
+                        pb_y_2 <= pb_y_2 - BULLET_SPD;
                 end
 
                 //------------------------------------------------------
                 // 3) Villain bullets (12 slots) move down; deactivate at
                 //    the bottom of the screen
                 //------------------------------------------------------
-                if (vb_active[0])  begin if (vb_y_0  >= SCREEN_H - BULLET_SPD) vb_active[0]  <= 1'b0; else vb_y_0  <= vb_y_0  + BULLET_SPD; end
-                if (vb_active[1])  begin if (vb_y_1  >= SCREEN_H - BULLET_SPD) vb_active[1]  <= 1'b0; else vb_y_1  <= vb_y_1  + BULLET_SPD; end
-                if (vb_active[2])  begin if (vb_y_2  >= SCREEN_H - BULLET_SPD) vb_active[2]  <= 1'b0; else vb_y_2  <= vb_y_2  + BULLET_SPD; end
-                if (vb_active[3])  begin if (vb_y_3  >= SCREEN_H - BULLET_SPD) vb_active[3]  <= 1'b0; else vb_y_3  <= vb_y_3  + BULLET_SPD; end
-                if (vb_active[4])  begin if (vb_y_4  >= SCREEN_H - BULLET_SPD) vb_active[4]  <= 1'b0; else vb_y_4  <= vb_y_4  + BULLET_SPD; end
-                if (vb_active[5])  begin if (vb_y_5  >= SCREEN_H - BULLET_SPD) vb_active[5]  <= 1'b0; else vb_y_5  <= vb_y_5  + BULLET_SPD; end
-                if (vb_active[6])  begin if (vb_y_6  >= SCREEN_H - BULLET_SPD) vb_active[6]  <= 1'b0; else vb_y_6  <= vb_y_6  + BULLET_SPD; end
-                if (vb_active[7])  begin if (vb_y_7  >= SCREEN_H - BULLET_SPD) vb_active[7]  <= 1'b0; else vb_y_7  <= vb_y_7  + BULLET_SPD; end
-                if (vb_active[8])  begin if (vb_y_8  >= SCREEN_H - BULLET_SPD) vb_active[8]  <= 1'b0; else vb_y_8  <= vb_y_8  + BULLET_SPD; end
-                if (vb_active[9])  begin if (vb_y_9  >= SCREEN_H - BULLET_SPD) vb_active[9]  <= 1'b0; else vb_y_9  <= vb_y_9  + BULLET_SPD; end
-                if (vb_active[10]) begin if (vb_y_10 >= SCREEN_H - BULLET_SPD) vb_active[10] <= 1'b0; else vb_y_10 <= vb_y_10 + BULLET_SPD; end
-                if (vb_active[11]) begin if (vb_y_11 >= SCREEN_H - BULLET_SPD) vb_active[11] <= 1'b0; else vb_y_11 <= vb_y_11 + BULLET_SPD; end
+                // Villain bullets stop at walls but do not erode them (saves LUTs)
+                if (vb_active[0])  begin if (vb_y_0  >= SCREEN_H-BULLET_SPD || any_wall_hit(vb_x_0,  vb_y_0,  VB_W,VB_H)) vb_active[0]  <= 1'b0; else vb_y_0  <= vb_y_0  + BULLET_SPD; end
+                if (vb_active[1])  begin if (vb_y_1  >= SCREEN_H-BULLET_SPD || any_wall_hit(vb_x_1,  vb_y_1,  VB_W,VB_H)) vb_active[1]  <= 1'b0; else vb_y_1  <= vb_y_1  + BULLET_SPD; end
+                if (vb_active[2])  begin if (vb_y_2  >= SCREEN_H-BULLET_SPD || any_wall_hit(vb_x_2,  vb_y_2,  VB_W,VB_H)) vb_active[2]  <= 1'b0; else vb_y_2  <= vb_y_2  + BULLET_SPD; end
+                if (vb_active[3])  begin if (vb_y_3  >= SCREEN_H-BULLET_SPD || any_wall_hit(vb_x_3,  vb_y_3,  VB_W,VB_H)) vb_active[3]  <= 1'b0; else vb_y_3  <= vb_y_3  + BULLET_SPD; end
+                if (vb_active[4])  begin if (vb_y_4  >= SCREEN_H-BULLET_SPD || any_wall_hit(vb_x_4,  vb_y_4,  VB_W,VB_H)) vb_active[4]  <= 1'b0; else vb_y_4  <= vb_y_4  + BULLET_SPD; end
+                if (vb_active[5])  begin if (vb_y_5  >= SCREEN_H-BULLET_SPD || any_wall_hit(vb_x_5,  vb_y_5,  VB_W,VB_H)) vb_active[5]  <= 1'b0; else vb_y_5  <= vb_y_5  + BULLET_SPD; end
+                if (vb_active[6])  begin if (vb_y_6  >= SCREEN_H-BULLET_SPD || any_wall_hit(vb_x_6,  vb_y_6,  VB_W,VB_H)) vb_active[6]  <= 1'b0; else vb_y_6  <= vb_y_6  + BULLET_SPD; end
+                if (vb_active[7])  begin if (vb_y_7  >= SCREEN_H-BULLET_SPD || any_wall_hit(vb_x_7,  vb_y_7,  VB_W,VB_H)) vb_active[7]  <= 1'b0; else vb_y_7  <= vb_y_7  + BULLET_SPD; end
+                if (vb_active[8])  begin if (vb_y_8  >= SCREEN_H-BULLET_SPD || any_wall_hit(vb_x_8,  vb_y_8,  VB_W,VB_H)) vb_active[8]  <= 1'b0; else vb_y_8  <= vb_y_8  + BULLET_SPD; end
+                if (vb_active[9])  begin if (vb_y_9  >= SCREEN_H-BULLET_SPD || any_wall_hit(vb_x_9,  vb_y_9,  VB_W,VB_H)) vb_active[9]  <= 1'b0; else vb_y_9  <= vb_y_9  + BULLET_SPD; end
+                if (vb_active[10]) begin if (vb_y_10 >= SCREEN_H-BULLET_SPD || any_wall_hit(vb_x_10, vb_y_10, VB_W,VB_H)) vb_active[10] <= 1'b0; else vb_y_10 <= vb_y_10 + BULLET_SPD; end
+                if (vb_active[11]) begin if (vb_y_11 >= SCREEN_H-BULLET_SPD || any_wall_hit(vb_x_11, vb_y_11, VB_W,VB_H)) vb_active[11] <= 1'b0; else vb_y_11 <= vb_y_11 + BULLET_SPD; end
 
                 //------------------------------------------------------
                 // 4) Villain group movement FSM

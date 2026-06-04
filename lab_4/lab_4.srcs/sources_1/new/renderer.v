@@ -53,19 +53,31 @@ module renderer(
 );
 
     // -------------------- Parameters --------------------
-    localparam PLAYER_W   = 10'd16;
-    localparam PLAYER_H   = 10'd8;
+    localparam PLAYER_W   = 10'd32;   // displayed at 2x scale
+    localparam PLAYER_H   = 10'd16;
     localparam PLAYER_Y   = 10'd450;
 
-    localparam V_W        = 10'd12;
-    localparam V_H        = 10'd8;
-    localparam V_CELL_W   = 10'd32;
-    localparam V_CELL_H   = 10'd24;
+    localparam V_W        = 10'd24;   // sprite displayed at 2x scale
+    localparam V_H        = 10'd16;
+    localparam V_CELL_W   = 10'd40;
+    localparam V_CELL_H   = 10'd32;
 
     localparam PB_W       = 10'd2;
     localparam PB_H       = 10'd8;
     localparam VB_W       = 10'd2;
     localparam VB_H       = 10'd6;
+
+    // Walls (4 shields)
+    localparam WALL_W      = 10'd32;
+    localparam WALL_H      = 10'd22;
+    localparam WALL_Y      = 10'd330;
+    localparam WALL_ARCH_X = 10'd11;
+    localparam WALL_ARCH_W = 10'd10;
+    localparam WALL_ARCH_Y = 10'd12;
+    localparam WALL0_X     = 10'd64;
+    localparam WALL1_X     = 10'd224;
+    localparam WALL2_X     = 10'd384;
+    localparam WALL3_X     = 10'd544;
 
     // Lives HUD: 3 ship icons in top-left
     localparam LIFE_W     = 10'd12;
@@ -116,11 +128,21 @@ module renderer(
     endfunction
 
     // -------------------- Per-pixel hit tests --------------------
-    // Inside player ship sprite? Hide it during blink (every other "blink frame")
+    // Player ship sprite lookup (16x8 ROM, modular sub-pixel arithmetic)
+    wire [4:0] player_sp_x = pix_x[4:0] - player_x[4:0];   // mod-32, valid 0..31 in bbox
+    wire [3:0] player_sp_y = pix_y[3:0] - PLAYER_Y[3:0];   // mod-16, valid 0..15 in bbox
+    wire player_rom_pix;
+    player_rom u_player_rom (
+        .col (player_sp_x[4:1]),   // >>1 → 0..15
+        .row (player_sp_y[3:1]),   // >>1 → 0..7
+        .pix (player_rom_pix)
+    );
+
     wire in_player =
         player_alive && !player_blink &&
         (pix_x >= player_x) && (pix_x < player_x + PLAYER_W) &&
-        (pix_y >= PLAYER_Y) && (pix_y < PLAYER_Y + PLAYER_H);
+        (pix_y >= PLAYER_Y) && (pix_y < PLAYER_Y + PLAYER_H) &&
+        player_rom_pix;
 
     // Inside any active player bullet?
     wire in_pb =
@@ -150,18 +172,16 @@ module renderer(
         for (gi = 0; gi < 15; gi = gi + 1) begin : g_in_v
             wire [9:0] vx_i = vx(gi[3:0]);
             wire [9:0] vy_i = vy(gi[3:0]);
-            // Sub-pixel offset within the 12x8 sprite cell.
-            // 4-bit/3-bit modular subtraction is correct for any villain_base_x
-            // because V_W=12<16 and V_H=8=2^3.
-            wire [3:0] sp_x = pix_x[3:0] - vx_i[3:0];
-            wire [2:0] sp_y = pix_y[2:0] - vy_i[2:0];
+            // Sub-pixel within the 24x16 on-screen sprite (2x scale of the 12x8 ROM).
+            // Divide by 2 (>> 1) to get the ROM address.
+            wire [4:0] sp_x = pix_x[4:0] - vx_i[4:0];  // mod-32, valid 0..23 inside bbox
+            wire [3:0] sp_y = pix_y[3:0] - vy_i[3:0];  // mod-16, valid 0..15 inside bbox
             wire       rom_pix;
             // gi 0-4 = top row (squid), 5-9 = middle (crab), 10-14 = bottom (octopus)
-            villain_rom u_vrom (
-                .alien_type ((gi <= 4) ? 2'd0 : (gi <= 9) ? 2'd1 : 2'd2),
-                .col        (sp_x),
-                .row        (sp_y),
-                .pix        (rom_pix)
+            villain_rom #(.ATYPE(gi < 5 ? 2'd0 : gi < 10 ? 2'd1 : 2'd2)) u_vrom (
+                .col (sp_x[4:1]),   // >> 1 → 0..11
+                .row (sp_y[3:1]),   // >> 1 → 0..7
+                .pix (rom_pix)
             );
             assign in_v_vec[gi] = villain_alive[gi] &&
                 (pix_x >= vx_i) && (pix_x < vx_i + V_W) &&
@@ -170,6 +190,9 @@ module renderer(
         end
     endgenerate
     wire in_villain = |in_v_vec;
+    wire in_villain_t0 = |in_v_vec[4:0];    // squid  (gi 0-4,  top row)
+    wire in_villain_t1 = |in_v_vec[9:5];    // crab   (gi 5-9,  middle row)
+    wire in_villain_t2 = |in_v_vec[14:10];  // octopus(gi 10-14,bottom row)
 
     // Inside lives HUD icon? lives in {0,1,2,3}; show one icon per remaining
     wire in_life0 = (lives >= 2'd1) &&
@@ -182,6 +205,24 @@ module renderer(
                     (pix_x >= LIFE_X0 + 2*LIFE_PITCH) && (pix_x < LIFE_X0 + 2*LIFE_PITCH + LIFE_W) &&
                     (pix_y >= LIFE_Y) && (pix_y < LIFE_Y + LIFE_H);
     wire in_lives = in_life0 | in_life1 | in_life2;
+
+    // -------------------- Walls --------------------
+    function in_wall_at;
+        input [9:0] px, py, wx;
+        reg in_box, in_arch;
+        begin
+            in_box  = (py >= WALL_Y) && (py < WALL_Y + WALL_H) &&
+                      (px >= wx)     && (px < wx + WALL_W);
+            in_arch = (py >= WALL_Y + WALL_ARCH_Y) &&
+                      (px >= wx + WALL_ARCH_X) && (px < wx + WALL_ARCH_X + WALL_ARCH_W);
+            in_wall_at = in_box && !in_arch;
+        end
+    endfunction
+
+    wire in_wall = in_wall_at(pix_x, pix_y, WALL0_X) |
+                   in_wall_at(pix_x, pix_y, WALL1_X) |
+                   in_wall_at(pix_x, pix_y, WALL2_X) |
+                   in_wall_at(pix_x, pix_y, WALL3_X);
 
     // -------------------- Text overlay --------------------
     // For GAME OVER / YOU WIN, look up the current character and call into
@@ -293,11 +334,26 @@ module renderer(
             vgaRed   = 4'hF;
             vgaGreen = 4'hF;
             vgaBlue  = 4'h0;
-        end else if (in_villain) begin
-            // Red
+        end else if (in_wall) begin
+            // Green shields
+            vgaRed   = 4'h0;
+            vgaGreen = 4'hF;
+            vgaBlue  = 4'h0;
+        end else if (in_villain_t0) begin
+            // Red (squid, top row)
             vgaRed   = 4'hF;
             vgaGreen = 4'h0;
             vgaBlue  = 4'h0;
+        end else if (in_villain_t1) begin
+            // Purple (crab, middle row)
+            vgaRed   = 4'hA;
+            vgaGreen = 4'h0;
+            vgaBlue  = 4'hF;
+        end else if (in_villain_t2) begin
+            // Cyan (octopus, bottom row)
+            vgaRed   = 4'h0;
+            vgaGreen = 4'hF;
+            vgaBlue  = 4'hF;
         end else begin
             // Black background
             vgaRed   = 4'h0;

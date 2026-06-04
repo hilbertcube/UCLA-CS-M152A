@@ -1,8 +1,7 @@
 `timescale 1ns / 1ps
-module villain_rom(
-    input  wire [1:0] alien_type, // 0=squid  1=crab  2=octopus
-    input  wire [3:0] col,        // 0..11, col 0 = leftmost
-    input  wire [2:0] row,        // 0..7,  row 0 = top
+module villain_rom #(parameter [1:0] ATYPE = 2'd0)(  // 0=squid 1=crab 2=octopus
+    input  wire [3:0] col,   // 0..11, col 0 = leftmost
+    input  wire [2:0] row,   // 0..7,  row 0 = top
     output wire       pix
 );
 
@@ -69,8 +68,8 @@ module villain_rom(
         octopus[7] = 12'h000;
     end
 
-    wire [11:0] row_bits = (alien_type == 2'd0) ? squid[row] :
-                           (alien_type == 2'd1) ? crab[row]  : octopus[row];
+    wire [11:0] row_bits = (ATYPE == 2'd0) ? squid[row] :
+                          (ATYPE == 2'd1) ? crab[row]  : octopus[row];
     assign pix = row_bits[4'd11 - col];
 
 endmodule
