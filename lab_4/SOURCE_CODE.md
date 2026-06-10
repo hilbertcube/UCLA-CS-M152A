@@ -3,31 +3,66 @@
 ## Block Diagram
 
 ```
-                        100 MHz board clock
-                              │
-                         ┌────▼────┐
-                         │ clk_div │ → 25 MHz pix_clk
-                         │         │ → game_tick (~60 Hz pulse)
-                         └─────────┘
-                               │ pix_clk
-          ┌────────────────────┼────────────────────┐
-          │                    │                    │
-    ┌─────▼──────┐      ┌──────▼──────┐      ┌─────▼──────┐
-    │  vga_sync  │      │ game_logic  │      │  renderer  │
-    │            │      │             │      │            │
-    │ hcnt, vcnt │      │ player_x    │      │ pix_x,y    │
-    │ hsync      │─────▶│ villain_*   │─────▶│ game state │
-    │ vsync      │      │ pb_*        │      │ → RGB out  │
-    │ video_on   │      │ vb_*        │      └─────┬──────┘
-    │ pix_x, y   │      │ lives,score │            │
-    └────────────┘      │ game_state  │     ┌──────▼──────┐
-                        └─────────────┘     │  villain_rom│
-                               │            │  player_rom │
-                        ┌──────▼──────┐     │  text_rom   │
-                        │ seg7_display│     └─────────────┘
-                        │ (score HUD) │
-                        └─────────────┘
+                                   100 MHz clk
+                                        │
+                                  ┌─────▼──────┐
+                                  │  clk_div   │
+                                  └──┬──────┬──┘
+                     pix_clk (25 MHz)│      │ game_tick (~60 Hz)
+                ┌────────────────────┘      │
+                │                           │
+   ┌────────────┼───────────────┐     ┌─────▼───────────────────────┐
+   │       pix_clk              │     │        game_logic           │
+   │            │               │     │                             │
+   │      ┌─────▼──────┐        │     │  player · villain · bullets │◄── btn signals
+   │      │  vga_sync  │        │     │  lives · score · game_state │
+   │      └─────┬──────┘        │     └──┬──────────────────────┬───┘
+   │            │               │        │ game state bundle    │ score
+   │  pix_x, pix_y, video_on    │        │                      │
+   │  hsync, vsync              │        │                ┌─────▼──────┐
+   │            │               │        │                │seg7_display│
+   │            └───────────────┼────────┘                └──┬─────┬───┘
+   │                            │                         seg[6:0] an[3:0]
+   │                      ┌─────▼──────────────────┐
+   │                      │       renderer         │
+   │                      │  + villain_rom ×15     │
+   │                      │  + player_rom          │
+   │                      │  + text_rom            │
+   │                      └──────────┬─────────────┘
+   │                                 │
+   └─────── pix_clk ─────────────────┘
+                                     │
+                             ┌───────▼────────┐
+                             │   VGA output   │
+                             │  RGB + hsync   │
+                             │      + vsync   │
+                             └────────────────┘
+
+  BTNL ──┐
+  BTNR ──┤   ┌─────────────┐   btnL/R_db (levels)  ──► game_logic
+  BTNU ──┼──►│ debouncer×4 ├── btnU_pulse (1-cycle) ──► game_logic
+  BTND ──┘   └─────────────┘   btnD_db (level)      ──► soft-reset counter
+              (pix_clk domain)
 ```
+
+### Signal glossary
+
+| Signal | Direction | Description |
+| --- | --- | --- |
+| `pix_clk` | clk_div → all | 25 MHz pixel clock (÷4 from 100 MHz) |
+| `game_tick` | clk_div → game_logic | ~60 Hz single-cycle pulse; advances all game state |
+| `hsync`, `vsync` | vga_sync → VGA port | Active-low sync pulses |
+| `pix_x`, `pix_y` | vga_sync → renderer | Current pixel coordinates (0–799, 0–524) |
+| `video_on` | vga_sync → renderer | High only in the 640×480 visible window |
+| `player_x`, `player_blink`, `player_alive` | game_logic → renderer | Player position and flash state |
+| `villain_alive[14:0]`, `villain_base_x/y` | game_logic → renderer | Villain grid state |
+| `pb_active[2:0]`, `pb_x/y_0..2` | game_logic → renderer | Player bullet slots |
+| `vb_active[11:0]`, `vb_x/y_0..11` | game_logic → renderer | Villain bullet slots (12 max) |
+| `lives[1:0]`, `game_state[1:0]` | game_logic → renderer | HUD and end-condition state |
+| `score[13:0]` | game_logic → seg7_display | Binary score (0–9999) |
+| `btnL/R_db` | debouncer → game_logic | Sustained debounced level for movement |
+| `btnU_pulse` | debouncer → game_logic | Single-cycle fire strobe |
+| `game_rst` | top.v → game_logic | OR of hard reset and 3-second soft reset |
 
 ---
 
